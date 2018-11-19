@@ -1566,7 +1566,6 @@ function NumberSchema() {
       if (this.isType(value)) return value;
 
       if (typeof value === 'string') {
-        if (this.isType(parsed)) return parsed;
         var stripped = value.replace(/\s/g, '');
         if (stripped !== '' && this.isType(+stripped)) return +stripped;
       }
