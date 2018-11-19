@@ -655,17 +655,27 @@ var trim = function trim(part) {
   return part.substr(0, part.length - 1).substr(1);
 };
 
-function reach(obj, path, value, context) {
-  var parent, lastPart; // if only one "value" arg then use it for both
+function getIn(schema, path, value, context) {
+  var parent, lastPart, lastPartDebug; // if only one "value" arg then use it for both
 
   context = context || value;
+  if (!path)
+    return {
+      parent: parent,
+      parentPath: path,
+      schema: schema.resolve({
+        context: context,
+        parent: parent,
+        value: value,
+      }),
+    };
   propertyExpr.forEach(path, function(_part, isBracket, isArray) {
     var part = isBracket ? trim(_part) : _part;
 
-    if (isArray || has(obj, '_subType')) {
+    if (isArray || has(schema, '_subType')) {
       // we skipped an array: foo[].bar
       var idx = isArray ? parseInt(part, 10) : 0;
-      obj = obj.resolve({
+      schema = schema.resolve({
         context: context,
         parent: parent,
         value: value,
@@ -688,39 +698,48 @@ function reach(obj, path, value, context) {
     }
 
     if (!isArray) {
-      obj = obj.resolve({
+      schema = schema.resolve({
         context: context,
         parent: parent,
         value: value,
       });
-      if (!has(obj, 'fields') || !has(obj.fields, part))
+      if (!has(schema, 'fields') || !has(schema.fields, part))
         throw new Error(
           'The schema does not contain the path: ' +
             path +
             '. ' +
             ('(failed at: ' +
-              lastPart +
+              lastPartDebug +
               ' which is a type: "' +
-              obj._type +
+              schema._type +
               '") '),
         );
-      obj = obj.fields[part];
+      schema = schema.fields[part];
       parent = value;
       value = value && value[part];
-      lastPart = isBracket ? '[' + _part + ']' : '.' + _part;
+      lastPart = _part;
+      lastPartDebug = isBracket ? '[' + _part + ']' : '.' + _part;
     }
   });
 
-  if (obj) {
-    obj = obj.resolve({
+  if (schema) {
+    schema = schema.resolve({
       context: context,
       parent: parent,
       value: value,
     });
   }
 
-  return obj;
+  return {
+    schema: schema,
+    parent: parent,
+    parentPath: lastPart,
+  };
 }
+
+var reach = function reach(obj, path, value, context) {
+  return getIn(obj, path, value, context).schema;
+};
 
 var notEmpty = function notEmpty(value) {
   return !isAbsent(value);
@@ -792,12 +811,9 @@ function SchemaType(options) {
   if (has(options, 'default')) this._defaultDefault = options.default;
   this._type = options.type || 'mixed';
 }
-SchemaType.prototype = {
+var proto = (SchemaType.prototype = {
   __isYupSchema__: true,
   constructor: SchemaType,
-  reach: function reach$$1(path, value, context) {
-    return reach(this, path, value, context);
-  },
   clone: function clone() {
     var _this2 = this;
 
@@ -1263,16 +1279,49 @@ SchemaType.prototype = {
         }),
     };
   },
-};
-var aliases = {
-  oneOf: ['equals', 'is'],
-  notOneOf: ['not', 'nope'],
-};
-Object.keys(aliases).forEach(function(method) {
-  aliases[method].forEach(function(alias) {
-    return (SchemaType.prototype[alias] = SchemaType.prototype[method]);
-  });
 });
+var _arr = ['validate', 'validateSync'];
+
+var _loop = function _loop() {
+  var method = _arr[_i];
+
+  proto[method + 'At'] = function(path, value, options) {
+    if (options === void 0) {
+      options = {};
+    }
+
+    var _getIn = getIn(this, path, value, options.context),
+      parent = _getIn.parent,
+      parentPath = _getIn.parentPath,
+      schema = _getIn.schema;
+
+    return schema[method](
+      parent && parent[parentPath],
+      _extends({}, options, {
+        parent: parent,
+        path: path,
+      }),
+    );
+  };
+};
+
+for (var _i = 0; _i < _arr.length; _i++) {
+  _loop();
+}
+
+var _arr2 = ['equals', 'is'];
+
+for (var _i2 = 0; _i2 < _arr2.length; _i2++) {
+  var alias = _arr2[_i2];
+  proto[alias] = proto.oneOf;
+}
+
+var _arr3 = ['not', 'nope'];
+
+for (var _i3 = 0; _i3 < _arr3.length; _i3++) {
+  var _alias = _arr3[_i3];
+  proto[_alias] = proto.notOneOf;
+}
 
 function inherits(ctor, superCtor, spec) {
   ctor.prototype = Object.create(superCtor.prototype, {
@@ -1315,7 +1364,7 @@ inherits(BooleanSchema, SchemaType, {
 
 var rEmail = /^((([a-z]|\d|[!#\$%&'\*\+\-\/=\?\^_`{\|}~]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])+(\.([a-z]|\d|[!#\$%&'\*\+\-\/=\?\^_`{\|}~]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])+)*)|((\x22)((((\x20|\x09)*(\x0d\x0a))?(\x20|\x09)+)?(([\x01-\x08\x0b\x0c\x0e-\x1f\x7f]|\x21|[\x23-\x5b]|[\x5d-\x7e]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(\\([\x01-\x09\x0b\x0c\x0d-\x7f]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]))))*(((\x20|\x09)*(\x0d\x0a))?(\x20|\x09)+)?(\x22)))@((([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.)+(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))$/i; // eslint-disable-next-line
 
-var rUrl = /^(https?|ftp):\/\/(((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:)*@)?(((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|((([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.)+(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.?)(:\d*)?)(\/((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)*)*)?)?(\?((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|[\uE000-\uF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|\/|\?)*)?$/i;
+var rUrl = /^((https?|ftp):)?\/\/(((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:)*@)?(((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|((([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.)+(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*([a-z]|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])))\.?)(:\d*)?)(\/((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)*)*)?)?(\?((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|[\uE000-\uF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|\/|\?)*)?$/i;
 
 var hasLength = function hasLength(value) {
   return isAbsent(value) || value.length > 0;
@@ -1523,8 +1572,13 @@ function NumberSchema() {
   this.withMutation(function() {
     _this.transform(function(value) {
       if (this.isType(value)) return value;
-      var parsed = parseFloat(value);
-      if (this.isType(parsed)) return parsed;
+
+      if (typeof value === 'string') {
+        if (this.isType(parsed)) return parsed;
+        var stripped = value.replace(/\s/g, '');
+        if (stripped !== '' && this.isType(+stripped)) return +stripped;
+      }
+
       return NaN;
     });
   });
@@ -1724,7 +1778,7 @@ function DateSchema() {
   });
   this.withMutation(function() {
     _this.transform(function(value) {
-      if (this.isType(value)) return isDate(value) ? new Date(value) : value;
+      if (this.isType(value)) return value;
       value = parseIsoDate(value);
       return value ? new Date(value) : invalidDate;
     });
@@ -1961,6 +2015,7 @@ inherits(ObjectSchema, SchemaType, {
       __validating: false,
     });
 
+    var isChanged = false;
     props.forEach(function(prop) {
       var field = fields[prop];
       var exists = has(value, prop);
@@ -1972,15 +2027,22 @@ inherits(ObjectSchema, SchemaType, {
         innerOptions.path = makePath(_templateObject(), options.path, prop);
         innerOptions.value = value[prop];
         field = field.resolve(innerOptions);
-        if (field._strip === true) return;
+
+        if (field._strip === true) {
+          isChanged = true;
+          return;
+        }
+
         fieldValue =
           !options.__validating || !strict
             ? field.cast(value[prop], innerOptions)
             : value[prop];
         if (fieldValue !== undefined) intermediateValue[prop] = fieldValue;
       } else if (exists && !strip) intermediateValue[prop] = value[prop];
+
+      if (intermediateValue[prop] !== value[prop]) isChanged = true;
     });
-    return intermediateValue;
+    return isChanged ? intermediateValue : value;
   },
   _validate: function _validate(_value, opts) {
     var _this4 = this;
@@ -2054,8 +2116,9 @@ inherits(ObjectSchema, SchemaType, {
       excludes = [];
     }
 
-    var next = this.clone(),
-      fields = _extends(next.fields, schema);
+    var next = this.clone();
+
+    var fields = _extends(next.fields, schema);
 
     next.fields = fields;
 
@@ -2075,12 +2138,12 @@ inherits(ObjectSchema, SchemaType, {
   from: function from(_from, to, alias) {
     var fromGetter = propertyExpr.getter(_from, true);
     return this.transform(function(obj) {
-      var newObj = obj;
       if (obj == null) return obj;
+      var newObj = obj;
 
       if (has(obj, _from)) {
         newObj = _extends({}, obj);
-        if (!alias) delete obj[_from];
+        if (!alias) delete newObj[_from];
         newObj[to] = fromGetter(obj);
       }
 
@@ -2193,9 +2256,17 @@ inherits(ArraySchema, SchemaType, {
     var value = SchemaType.prototype._cast.call(this, _value, _opts); //should ignore nulls here
 
     if (!this._typeCheck(value) || !this._subType) return value;
-    return value.map(function(v) {
-      return _this2._subType.cast(v, _opts);
+    var isChanged = false;
+    var castArray = value.map(function(v) {
+      var castElement = _this2._subType.cast(v, _opts);
+
+      if (castElement !== v) {
+        isChanged = true;
+      }
+
+      return castElement;
     });
+    return isChanged ? castArray : value;
   },
   _validate: function _validate(_value, options) {
     var _this3 = this;

@@ -31,10 +31,10 @@ json separate from validating it, via the `cast` method.
     - [`mixed.meta(metadata: object): Schema`](#mixedmetametadata-object-schema)
     - [`mixed.describe(): SchemaDescription`](#mixeddescribe-schemadescription)
     - [`mixed.concat(schema: Schema)`](#mixedconcatschema-schema)
-    - [`mixed.validate(value: any, options: ?object): Promise<any, ValidationError>`](#mixedvalidatevalue-any-options-object-promiseany-validationerror)
-    - [`mixed.validateSync(value: any, options: ?object): any`](#mixedvalidatesyncvalue-any-options-object-any)
-    - [`mixed.validateAt(path: string, value: any, context?: object): Promise<any, ValidationError>`](#mixedvalidateatpath-string-value-any-context-object-promiseany-validationerror)
-    - [`mixed.validateSyncAt(path: string, value: any, context?: object): Promise<any, ValidationError>`](#mixedvalidatesyncatpath-string-value-any-context-object-promiseany-validationerror)
+    - [`mixed.validate(value: any, options?: object): Promise<any, ValidationError>`](#mixedvalidatevalue-any-options-object-promiseany-validationerror)
+    - [`mixed.validateSync(value: any, options?: object): any`](#mixedvalidatesyncvalue-any-options-object-any)
+    - [`mixed.validateAt(path: string, value: any, options?: object): Promise<any, ValidationError>`](#mixedvalidateatpath-string-value-any-options-object-promiseany-validationerror)
+    - [`mixed.validateSyncAt(path: string, value: any, options?: object): any`](#mixedvalidatesyncatpath-string-value-any-options-object-any)
     - [`mixed.isValid(value: any, options: ?object): Promise<boolean>`](#mixedisvalidvalue-any-options-object-promiseboolean)
     - [`mixed.isValidSync(value: any, options: ?object): boolean`](#mixedisvalidsyncvalue-any-options-object-boolean)
     - [`mixed.cast(value: any): any`](#mixedcastvalue-any-any)
@@ -609,21 +609,20 @@ You can also specify more than one dependent key, in which case each value will 
 
 ```javascript
 var inst = yup.object({
-      isSpecial: yup.bool(),
-      isBig: yup.bool(),
-      count: yup.number()
-        .when(['isBig', 'isSpecial'], {
-          is: true,  // alternatively: (isBig, isSpecial) => isBig && isSpecial
-          then:      yup.number().min(5),
-          otherwise: yup.number().min(0)
-        })
-    })
+  isSpecial: yup.bool(),
+  isBig: yup.bool(),
+  count: yup.number().when(['isBig', 'isSpecial'], {
+    is: true, // alternatively: (isBig, isSpecial) => isBig && isSpecial
+    then: yup.number().min(5),
+    otherwise: yup.number().min(0),
+  }),
+});
 
 inst.validate({
   isBig: true,
   isSpecial: true,
-  count: 10
-})
+  count: 10,
+});
 ```
 
 Alternatively you can provide a function that returns a schema
